@@ -89,21 +89,20 @@ esegui = st.sidebar.button("Esegui analisi")
 
 # QR code nella sidebar
 with st.sidebar.expander("QR code per smartphone"):
-    ip = get_local_ip()
-    url = f"http://{ip}:8501"
-    st.write("PC e telefono devono essere sulla stessa rete WiFi.")
+    # URL pubblico dell'app su Streamlit Cloud
+    url = "https://additivi-app-hx9y7qbxbeqq9b7psb347k.streamlit.app/"
+
+    st.write("Apri questo link con il telefono oppure scansiona il QR.")
     st.write("URL:", url)
 
-    # QR piu grande e con sfondo bianco
     qr = qrcode.QRCode(
         version=1,
-        box_size=8,   # aumenta per ingrandire il QR
+        box_size=8,
         border=4,
     )
     qr.add_data(url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white")
-
     qr_array = np.array(qr_img.convert("RGB"))
     st.image(qr_array, caption="Scansiona con la fotocamera", use_column_width=True)
 
@@ -523,3 +522,4 @@ if esegui:
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("Nessun dato valido per costruire il grafico di confronto RMSE.")
+

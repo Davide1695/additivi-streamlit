@@ -1,0 +1,6 @@
+streamlit
+scikit-learn
+pandas
+numpy
+altair
+qrcode[pil]

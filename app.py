@@ -154,9 +154,9 @@ with st.expander("Legenda additivi (sigla -> materiale)"):
 
 with st.expander("Legenda variabili di input (E, SR, epsr)"):
     st.markdown(
-        "- **E**: modulo di Young (rigidezza del materiale), in **GPa**\n"
-        "- **SR**: sigma a rottura (resistenza a trazione), in **MPa**\n"
-        "- **epsr**: deformazione a rottura, in **percentuale (%)**\n"
+        "- **E**: Modulo di Young (rigidezza del materiale), in **GPa**\n"
+        "- **SR**: Tensione a rottura (resistenza a trazione), in **MPa**\n"
+        "- **epsr**: Deformazione a rottura, in **percentuale (%)**\n"
     )
 
 # --------- sidebar: input utente + macro-range + QR ----------
@@ -646,5 +646,6 @@ if esegui:
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("Nessun dato valido per costruire il grafico di confronto RMSE.")
+
 
 

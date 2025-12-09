@@ -247,4 +247,404 @@ if esegui:
         y = sotto["P"].values
         N = X.shape[0]
 
-        descr = ADDITI
+        descr = ADDITIVO_DESCR.get(str(nome_add), "")
+        header = f"Additivo: {nome_add}"
+        if descr:
+            header += f" ({descr})"
+
+        st.markdown(f"---\n#### {header}  |  N = {N}")
+
+        # range specifici per questo additivo
+        range_E = (np.min(X[:, 0]), np.max(X[:, 0]))
+        range_SR = (np.min(X[:, 1]), np.max(X[:, 1]))
+        range_epsr = (np.min(X[:, 2]), np.max(X[:, 2]))
+
+        name_E = "E - modulo di Young (GPa)"
+        name_SR = "SR - sigma a rottura (MPa)"
+        name_epsr = "epsr - deformazione a rottura (%)"
+
+        inE, msgE = range_report(name_E, E_input, range_E)
+        inSR, msgSR = range_report(name_SR, SR_input, range_SR)
+        inEP, msgEP = range_report(name_epsr, epsr_input, range_epsr)
+
+        st.write("**Valutazione rispetto ai range sperimentali dell'additivo:**")
+        st.text(msgE + "\n" + msgSR + "\n" + msgEP)
+
+        in_range_all = inE and inSR and inEP
+
+        if not in_range_all:
+            st.warning(
+                f"Input FUORI RANGE per l'additivo {nome_add}. Previsioni non affidabili: additivo skippato."
+            )
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "(skipped)",
+                    "Predizione_P": np.nan,
+                    "MAE": np.nan,
+                    "RMSE": np.nan,
+                    "R2": np.nan,
+                    "N": N,
+                    "K": np.nan,
+                    "InRange": 0,
+                }
+            )
+            continue
+        else:
+            st.info(
+                f"Input nel range per l'additivo {nome_add}. Si procede con le previsioni dei modelli."
+            )
+
+        if N < 3:
+            st.warning(
+                f"Troppi pochi dati (N={N}) per una K-fold affidabile. Additivo considerato 'too-few'."
+            )
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "(too-few)",
+                    "Predizione_P": np.nan,
+                    "MAE": np.nan,
+                    "RMSE": np.nan,
+                    "R2": np.nan,
+                    "N": N,
+                    "K": np.nan,
+                    "InRange": 1,
+                }
+            )
+            continue
+
+        K = min(5, max(2, N))
+        cv = KFold(n_splits=K, shuffle=True, random_state=42)
+        input_nuovo = np.array([[E_input, SR_input, epsr_input]])
+
+        base_tree = DecisionTreeRegressor(max_leaf_nodes=21, random_state=42)
+
+        def cv_predict(model, X_arr, y_arr, cv_obj):
+            y_pred_cv = np.full_like(y_arr, np.nan, dtype=float)
+            for train_idx, test_idx in cv_obj.split(X_arr):
+                X_train, X_test = X_arr[train_idx], X_arr[test_idx]
+                y_train = y_arr[train_idx]
+                mdl = model
+                mdl.fit(X_train, y_train)
+                y_pred_cv[test_idx] = mdl.predict(X_test)
+            return y_pred_cv
+
+        # ----- LSBoost (GradientBoostingRegressor) -----
+        try:
+            mdl_ls = GradientBoostingRegressor(
+                loss="squared_error", n_estimators=100, random_state=42
+            )
+            y_pred_ls_cv = cv_predict(
+                GradientBoostingRegressor(
+                    loss="squared_error", n_estimators=100, random_state=42
+                ),
+                X,
+                y,
+                cv,
+            )
+            mdl_ls.fit(X, y)
+            pred_ls = mdl_ls.predict(input_nuovo)[0]
+
+            MAE_ls = np.mean(np.abs(y - y_pred_ls_cv))
+            RMSE_ls = np.sqrt(np.mean((y - y_pred_ls_cv) ** 2))
+            R2_ls = 1 - np.sum((y - y_pred_ls_cv) ** 2) / np.sum(
+                (y - np.mean(y)) ** 2
+            )
+
+            st.write("**Risultati modello LSBoost (GradientBoostingRegressor):**")
+            st.write(
+                f"Predizione P: {pred_ls:.2f}  |  MAE: {MAE_ls:.2f}  |  "
+                f"RMSE: {RMSE_ls:.2f}  |  R2: {R2_ls:.3f}"
+            )
+
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "LSBoost",
+                    "Predizione_P": pred_ls,
+                    "MAE": MAE_ls,
+                    "RMSE": RMSE_ls,
+                    "R2": R2_ls,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+        except Exception as e:
+            st.warning(f"LSBoost fallito per {nome_add}: {e}")
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "LSBoost (err)",
+                    "Predizione_P": np.nan,
+                    "MAE": np.nan,
+                    "RMSE": np.nan,
+                    "R2": np.nan,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+
+        # ----- Bagging -----
+        try:
+            mdl_bag = BaggingRegressor(
+                estimator=base_tree, n_estimators=100, random_state=42
+            )
+            y_pred_bag_cv = cv_predict(
+                BaggingRegressor(
+                    estimator=base_tree, n_estimators=100, random_state=42
+                ),
+                X,
+                y,
+                cv,
+            )
+            mdl_bag.fit(X, y)
+            pred_bag = mdl_bag.predict(input_nuovo)[0]
+
+            MAE_bag = np.mean(np.abs(y - y_pred_bag_cv))
+            RMSE_bag = np.sqrt(np.mean((y - y_pred_bag_cv) ** 2))
+            R2_bag = 1 - np.sum((y - y_pred_bag_cv) ** 2) / np.sum(
+                (y - np.mean(y)) ** 2
+            )
+
+            st.write("**Risultati modello Bagging:**")
+            st.write(
+                f"Predizione P: {pred_bag:.2f}  |  MAE: {MAE_bag:.2f}  |  "
+                f"RMSE: {RMSE_bag:.2f}  |  R2: {R2_bag:.3f}"
+            )
+
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "Bagging",
+                    "Predizione_P": pred_bag,
+                    "MAE": MAE_bag,
+                    "RMSE": RMSE_bag,
+                    "R2": R2_bag,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+        except Exception as e:
+            st.warning(f"Bagging fallito per {nome_add}: {e}")
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "Bagging (err)",
+                    "Predizione_P": np.nan,
+                    "MAE": np.nan,
+                    "RMSE": np.nan,
+                    "R2": np.nan,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+
+        # ----- Lineare -----
+        try:
+            y_pred_lin_cv = np.full_like(y, np.nan, dtype=float)
+            for train_idx, test_idx in cv.split(X):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train = y[train_idx]
+                mdl_lin_k = LinearRegression(fit_intercept=True)
+                mdl_lin_k.fit(X_train, y_train)
+                y_pred_lin_cv[test_idx] = mdl_lin_k.predict(X_test)
+
+            mdl_lin = LinearRegression(fit_intercept=True)
+            mdl_lin.fit(X, y)
+            pred_lin = mdl_lin.predict(input_nuovo)[0]
+            pred_lin = np.clip(pred_lin, 0, 100)
+
+            MAE_lin = np.mean(np.abs(y - y_pred_lin_cv))
+            RMSE_lin = np.sqrt(np.mean((y - y_pred_lin_cv) ** 2))
+            R2_lin = 1 - np.sum((y - y_pred_lin_cv) ** 2) / np.sum(
+                (y - np.mean(y)) ** 2
+            )
+
+            st.write("**Risultati modello Lineare:**")
+            st.write(
+                f"Predizione P: {pred_lin:.2f}  |  MAE: {MAE_lin:.2f}  |  "
+                f"RMSE: {RMSE_lin:.2f}  |  R2: {R2_lin:.3f}"
+            )
+
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "Lineare",
+                    "Predizione_P": pred_lin,
+                    "MAE": MAE_lin,
+                    "RMSE": RMSE_lin,
+                    "R2": R2_lin,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+        except Exception as e:
+            st.warning(f"Lineare fallito per {nome_add}: {e}")
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "Lineare (err)",
+                    "Predizione_P": np.nan,
+                    "MAE": np.nan,
+                    "RMSE": np.nan,
+                    "R2": np.nan,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+
+        # ----- Polinomiale 2 ordine -----
+        try:
+            poly_model = Pipeline(
+                steps=[
+                    ("scaler", StandardScaler()),
+                    ("poly", PolynomialFeatures(degree=2, include_bias=False)),
+                    ("linreg", LinearRegression(fit_intercept=True)),
+                ]
+            )
+
+            y_pred_poly_cv = np.full_like(y, np.nan, dtype=float)
+            for train_idx, test_idx in cv.split(X):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train = y[train_idx]
+
+                mdl_poly_k = Pipeline(
+                    steps=[
+                        ("scaler", StandardScaler()),
+                        ("poly", PolynomialFeatures(degree=2, include_bias=False)),
+                        ("linreg", LinearRegression(fit_intercept=True)),
+                    ]
+                )
+                mdl_poly_k.fit(X_train, y_train)
+                y_pred_poly_cv[test_idx] = mdl_poly_k.predict(X_test)
+
+            poly_model.fit(X, y)
+            pred_poly = poly_model.predict(input_nuovo)[0]
+            pred_poly = np.clip(pred_poly, 0, 100)
+
+            MAE_poly = np.mean(np.abs(y - y_pred_poly_cv))
+            RMSE_poly = np.sqrt(np.mean((y - y_pred_poly_cv) ** 2))
+            R2_poly = 1 - np.sum((y - y_pred_poly_cv) ** 2) / np.sum(
+                (y - np.mean(y)) ** 2
+            )
+
+            st.write("**Risultati modello Polinomiale (2 ordine):**")
+            st.write(
+                f"Predizione P: {pred_poly:.2f}  |  MAE: {MAE_poly:.2f}  |  "
+                f"RMSE: {RMSE_poly:.2f}  |  R2: {R2_poly:.3f}"
+            )
+
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "Polinomiale",
+                    "Predizione_P": pred_poly,
+                    "MAE": MAE_poly,
+                    "RMSE": RMSE_poly,
+                    "R2": R2_poly,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+        except Exception as e:
+            st.warning(f"Polinomiale fallito per {nome_add}: {e}")
+            risultati_records.append(
+                {
+                    "Additivo": nome_add,
+                    "Descrizione_additivo": descr,
+                    "Modello": "Polinomiale (err)",
+                    "Predizione_P": np.nan,
+                    "MAE": np.nan,
+                    "RMSE": np.nan,
+                    "R2": np.nan,
+                    "N": N,
+                    "K": K,
+                    "InRange": 1,
+                }
+            )
+
+    # --------- riepilogo complessivo + grafico ----------
+    if len(risultati_records) > 0:
+        risultati = pd.DataFrame(risultati_records)
+
+        col_order = [
+            "Additivo",
+            "Descrizione_additivo",
+            "Modello",
+            "N",
+            "K",
+            "InRange",
+            "Predizione_P",
+            "MAE",
+            "RMSE",
+            "R2",
+        ]
+        risultati = risultati[col_order]
+
+        risultati["is_nan_rmse"] = risultati["RMSE"].isna()
+        risultati = risultati.sort_values(
+            by=["is_nan_rmse", "RMSE"], ascending=[True, True]
+        ).drop(columns=["is_nan_rmse"])
+
+        st.write("## Riepilogo modelli per additivo (ordinati per RMSE crescente)")
+        st.dataframe(risultati)
+
+        mods_to_plot = ["LSBoost", "Bagging", "Lineare", "Polinomiale"]
+        mask = (
+            risultati["Modello"].isin(mods_to_plot)
+            & (risultati["InRange"] == 1)
+            & (~risultati["RMSE"].isna())
+        )
+        ris_plot = risultati.loc[
+            mask, ["Additivo", "Descrizione_additivo", "Modello", "RMSE"]
+        ]
+
+        if not ris_plot.empty:
+            st.write(
+                "### Confronto modelli per additivo (RMSE piu basso = modello migliore)"
+            )
+
+            ris_plot["Additivo_label"] = (
+                ris_plot["Additivo"] + " - " + ris_plot["Descrizione_additivo"]
+            )
+
+            chart = (
+                alt.Chart(ris_plot)
+                .mark_bar()
+                .encode(
+                    x=alt.X("Additivo_label:N", title="Additivo"),
+                    y=alt.Y("RMSE:Q", title="RMSE"),
+                    color="Modello:N",
+                    column=alt.Column("Modello:N", title="Modello"),
+                    tooltip=[
+                        "Additivo",
+                        "Descrizione_additivo",
+                        "Modello",
+                        "RMSE",
+                    ],
+                )
+                .properties(height=250)
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info("Nessun dato valido per costruire il grafico di confronto RMSE.")
+
+

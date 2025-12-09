@@ -163,17 +163,17 @@ with st.expander("Legenda variabili di input (E, SR, epsr)"):
 st.sidebar.header("Input utente")
 
 E_input = st.sidebar.number_input(
-    "E (modulo di Young, GPa)",
+    "E (Modulo di Young, GPa)",
     value=0.0,
     format="%.6f",
 )
 SR_input = st.sidebar.number_input(
-    "SR (sigma a rottura, MPa)",
+    "SR (Tensione a rottura, MPa)",
     value=0.0,
     format="%.6f",
 )
 epsr_input = st.sidebar.number_input(
-    "epsr (deformazione a rottura, %)",
+    "epsr (Deformazione a rottura, %)",
     value=0.0,
     format="%.6f",
 )
@@ -259,9 +259,10 @@ if esegui:
         range_SR = (np.min(X[:, 1]), np.max(X[:, 1]))
         range_epsr = (np.min(X[:, 2]), np.max(X[:, 2]))
 
-        name_E = "E - modulo di Young (GPa)"
-        name_SR = "SR - sigma a rottura (MPa)"
-        name_epsr = "epsr - deformazione a rottura (%)"
+        name_E = "E - Modulo di Young (GPa)"
+        name_SR = "SR - Tensione a rottura (MPa)"
+        name_epsr = "epsr - Deformazione a rottura (%)"
+
 
         inE, msgE = range_report(name_E, E_input, range_E)
         inSR, msgSR = range_report(name_SR, SR_input, range_SR)
@@ -646,6 +647,7 @@ if esegui:
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("Nessun dato valido per costruire il grafico di confronto RMSE.")
+
 
 
 
